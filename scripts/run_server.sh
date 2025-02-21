@@ -18,6 +18,7 @@ if [ -z "$1" ]; then
 fi
 
 ENV_FILE=""
+DEFAULT_PORT="15000"
 
 # Parse arguments
 case "$1" in
@@ -74,4 +75,4 @@ else
 fi
 
 # Start the server
-streamlit run src/main.py
+streamlit run src/main.py --server.port $DEFAULT_PORT
