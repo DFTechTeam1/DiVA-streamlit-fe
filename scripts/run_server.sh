@@ -47,9 +47,6 @@ esac
 # Load the environment variables
 export $(grep -v '^#' $ENV_FILE | xargs)
 
-# Set HOST from IP_HOST in .env file
-HOST=${IP_HOST:-"127.0.0.1"}
-
 # Checking OS Environment
 echo "Checking OS Environment"
 if grep -qEi "(Microsoft|WSL)" /proc/version &>/dev/null; then
@@ -77,5 +74,4 @@ else
 fi
 
 # Start the server
-echo "Running streamlit server on $HOST:8000"
 streamlit run src/main.py
