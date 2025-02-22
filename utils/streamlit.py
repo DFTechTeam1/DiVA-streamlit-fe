@@ -8,7 +8,6 @@ from pandas.core.frame import DataFrame
 from utils.helper import convert_dataframe
 
 
-
 class StreamlitConfiguration:
     def __init__(self) -> None:
         self.diva_connector = DiVAConnector()
@@ -18,14 +17,14 @@ class StreamlitConfiguration:
 
     def update_title(self) -> None:
         st.set_page_config(
-            layout="wide", 
+            layout="wide",
             page_title="DiVA",
-            page_icon="images/logo white - alt 2-01.png"
+            page_icon="images/logo white - alt 2-01.png",
         )
 
     def show_logo(self) -> None:
         img_path = "images/Logo - Black.png"
-        
+
         with open(img_path, "rb") as img_file:
             encoded_string = base64.b64encode(img_file.read()).decode("utf-8")
 
@@ -37,8 +36,6 @@ class StreamlitConfiguration:
             """,
             unsafe_allow_html=True,
         )
-
-
 
     def remove_deploy_btn(self) -> None:
         st.markdown(
@@ -71,14 +68,16 @@ class StreamlitConfiguration:
 
         if "prediction_label" not in st.session_state:
             st.session_state["prediction_label"]: dict = None
-            
+
         if "similar_image" not in st.session_state:
             st.session_state["similar_image"]: list = None
 
     def sidebar(self) -> None:
         with st.sidebar:
             self.show_logo()
-            st.markdown("<div style='margin-bottom: 35px;'></div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div style='margin-bottom: 35px;'></div>", unsafe_allow_html=True
+            )
             st.header(body="DiVA", help="Dfactory Image Retrieval")
             st.divider()
 
@@ -119,7 +118,7 @@ class StreamlitConfiguration:
             help=description,
             disabled=disabled,
         )
-        
+
     def fetch_results(self) -> Optional[dict]:
         with st.spinner("Searching for similar images..."):
             try:
@@ -132,59 +131,66 @@ class StreamlitConfiguration:
                         prediction_label=st.session_state["prediction_label"],
                     )
                 )
-                
+
                 return data
 
             except Exception as e:
                 logging.error(f"Error during API request: {e}")
-                
+
         return None
-    
-    
+
     def render_upload(self, encoded_image: str, filename: str) -> None:
         decoded_image = base64.b64decode(encoded_image)
         st.image(decoded_image, caption=f"{filename}")
-        
-        
-    def render_prediction(self, dataframe: DataFrame, x_column: str, y_column: str) -> None:
+
+    def render_prediction(
+        self, dataframe: DataFrame, x_column: str, y_column: str
+    ) -> None:
         st.text("Prediction Labels")
         st.bar_chart(data=dataframe, x=x_column, y=y_column)
-    
-    
+
     def image_uploader(self) -> None:
         st.write("###### Search data by image")
         uploaded_image = st.file_uploader(
             label="Upload image file",
             help="Accept only 1 image data with extensions such as 'jpeg', 'jpg', 'png'.",
             type=["jpeg", "jpg", "png"],
-            accept_multiple_files=False
+            accept_multiple_files=False,
         )
         if uploaded_image:
             logging.info(f"Uploaded image {uploaded_image.name}.")
-            
+
             col1, col2 = st.columns(2)
-            
-            with st.container():    
+
+            with st.container():
                 image_bytes = uploaded_image.read()
                 encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-                
+
                 with col1:
-                    self.render_upload(encoded_image=encoded_image, filename=uploaded_image.name)
-                    
+                    self.render_upload(
+                        encoded_image=encoded_image, filename=uploaded_image.name
+                    )
+
                 st.session_state["encoded_image"] = encoded_image
-                response = self.fetch_results()        
-                
-                
+                response = self.fetch_results()
+
                 if response:
-                    st.session_state["prediction_label"] = list(response["data"]["prediction_label"].keys())
-                    st.session_state["similar_image"] = response["data"]["similar_image"]
-                    converted = convert_dataframe(data=response["data"]["prediction_label"])
-                    
-                    
+                    st.session_state["prediction_label"] = list(
+                        response["data"]["prediction_label"].keys()
+                    )
+                    st.session_state["similar_image"] = response["data"][
+                        "similar_image"
+                    ]
+                    converted = convert_dataframe(
+                        data=response["data"]["prediction_label"]
+                    )
+
                     with col2:
-                        self.render_prediction(dataframe=converted, x_column="Label", y_column="Confidence")
+                        self.render_prediction(
+                            dataframe=converted, x_column="Label", y_column="Confidence"
+                        )
                 else:
-                    st.error(body="Failed to predict image.")            
+                    st.error(body="Failed to predict image.")
         else:
             logging.warning("No image uploaded.")
             st.session_state["encoded_image"] = None
