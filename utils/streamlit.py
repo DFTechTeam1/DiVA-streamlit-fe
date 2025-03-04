@@ -1,19 +1,16 @@
 import asyncio
 import base64
 import streamlit as st
-from typing import Optional
+from typing import Optional, Union
 from utils.logger import logging
 from utils.diva import DiVAConnector
-from pandas.core.frame import DataFrame
-from utils.helper import convert_dataframe
+from utils.helper import CustomHelper
 
 
 class StreamlitConfiguration:
     def __init__(self) -> None:
         self.diva_connector = DiVAConnector()
-        self.update_title()
-        self.remove_deploy_btn()
-        self.session_state()
+        self.helper = CustomHelper()
 
     def update_title(self) -> None:
         st.set_page_config(
@@ -55,22 +52,25 @@ class StreamlitConfiguration:
 
     def session_state(self) -> None:
         if "encoded_image" not in st.session_state:
-            st.session_state["encoded_image"]: str = None
+            st.session_state["encoded_image"] = None
 
         if "threshold" not in st.session_state:
-            st.session_state["threshold"]: float = None
+            st.session_state["threshold"] = None
 
         if "page" not in st.session_state:
-            st.session_state["page"]: int = 1
+            st.session_state["page"] = 1
 
         if "image_per_page" not in st.session_state:
-            st.session_state["image_per_page"]: int = None
+            st.session_state["image_per_page"] = 100
 
         if "prediction_label" not in st.session_state:
-            st.session_state["prediction_label"]: dict = None
+            st.session_state["prediction_label"] = None
 
         if "similar_image" not in st.session_state:
-            st.session_state["similar_image"]: list = None
+            st.session_state["similar_image"] = []
+
+        if "base_model" not in st.session_state:
+            st.session_state["base_model"] = "clip-ViT-B-32"
 
     def sidebar(self) -> None:
         with st.sidebar:
@@ -78,38 +78,31 @@ class StreamlitConfiguration:
             st.markdown(
                 "<div style='margin-bottom: 35px;'></div>", unsafe_allow_html=True
             )
-            st.header(body="DiVA", help="Dfactory Image Retrieval")
+            st.header(body="DiVA", help="DiVA stands for DFactory Image Retrieval")
             st.divider()
 
-            image_per_page = self.number_input(
-                label="Total retrieve image",
-                min_value=1,
-                max_value=200,
-                default_value=100,
-                description="Input total of image that you want to retrieve, accepted with minimum value is 1 and maximum value is 200.",
-            )
+            is_image_uploaded = bool(st.session_state.get("encoded_image"))
 
             threshold = self.number_input(
                 label="Accuracy threshold",
                 min_value=0.1,
                 max_value=1.0,
-                default_value=0.8,
+                default_value=0.3,
                 description="Set the minimum accuracy required for retrieval results. A higher value ensures more precise matches, while a lower value allows for broader results. The threshold ranges from 0.1 (less strict) to 1.0 (highly strict).",
-                disabled=True if st.session_state["encoded_image"] else False,
+                disabled=is_image_uploaded,
             )
 
             st.session_state["threshold"] = threshold
-            st.session_state["image_per_page"] = image_per_page
 
     def number_input(
         self,
         label: str,
-        min_value: int | float,
-        max_value: int | float,
-        default_value: int | float,
+        min_value: Union[int, float],
+        max_value: Union[int, float],
+        default_value: Union[int, float],
         description: str,
         disabled: bool = False,
-    ) -> int | float:
+    ) -> Union[int, float]:
         return st.number_input(
             label=label,
             min_value=min_value,
@@ -119,85 +112,122 @@ class StreamlitConfiguration:
             disabled=disabled,
         )
 
-    def fetch_results(self) -> Optional[dict]:
-        with st.spinner("Searching for similar images..."):
-            try:
-                data = asyncio.run(
-                    self.diva_connector.grab_similar(
-                        encoded_image=st.session_state["encoded_image"],
-                        threshold=st.session_state["threshold"],
-                        page=st.session_state["page"],
-                        image_per_page=st.session_state["image_per_page"],
-                        prediction_label=st.session_state["prediction_label"],
-                    )
-                )
+    def select_box(self, label: str, options: list, disabled: bool) -> str:
+        return st.selectbox(label=label, options=options, disabled=disabled)
 
-                return data
+    def custom_btn(self, label: str, description: str, disabled: bool) -> int:
+        return st.button(label=label, help=description, disabled=disabled)
 
-            except Exception as e:
-                logging.error(f"Error during API request: {e}")
+    def fetch_similar_image(self) -> Optional[dict]:
+        data = asyncio.run(
+            self.diva_connector.grab_similar(
+                base_model=st.session_state["base_model"],
+                encoded_image=st.session_state["encoded_image"],
+                threshold=st.session_state["threshold"],
+                page=st.session_state["page"],
+                image_per_page=st.session_state["image_per_page"],
+                prediction_label=st.session_state["prediction_label"],
+            )
+        )
 
-        return None
+        if not data:
+            logging.info("Failed to fetch similar images.")
+            st.session_state["similar_image"] = []
+            return None
 
-    def render_upload(self, encoded_image: str, filename: str) -> None:
+        st.session_state["similar_image"] = data["data"]["similar_image"]
+        return data
+
+    def render_uploaded_image(self, encoded_image: str, filename: str) -> None:
         decoded_image = base64.b64decode(encoded_image)
-        st.image(decoded_image, caption=f"{filename}")
+        st.image(decoded_image, caption=f"{filename}", use_container_width=True)
 
-    def render_prediction(
-        self, dataframe: DataFrame, x_column: str, y_column: str
-    ) -> None:
+    def render_predicted_label(self, predicted_label: dict) -> None:
+        converted = self.helper.convert_dataframe(data=predicted_label)
         st.text("Prediction Labels")
-        st.bar_chart(data=dataframe, x=x_column, y=y_column)
+        st.bar_chart(data=converted, x="Label", y="Confidence")
+
+    def render_similar_image(self) -> None:
+        images = st.session_state.get("similar_image", [])
+
+        if not images and st.session_state["encoded_image"]:
+            st.warning("No similar images found.")
+
+        if st.session_state["similar_image"]:
+            st.write("#### Similar Image")
+            st.divider()
+
+        with st.spinner("Loading similar images..."):
+            num_columns = 5
+            for i in range(0, len(images), num_columns):
+                cols = st.columns(num_columns)
+                for j, col in enumerate(cols):
+                    if i + j < len(images):
+                        image_data = images[i + j]
+                        image_path = image_data["filepath"]
+                        accuracy = image_data["accuracy"]
+
+                        try:
+                            with open(image_path, "rb") as img_file:
+                                encoded_string = base64.b64encode(
+                                    img_file.read()
+                                ).decode("utf-8")
+                            col.image(
+                                f"data:image/png;base64,{encoded_string}",
+                                use_container_width=True,
+                            )
+                        except Exception:
+                            col.error(f"Failed to load image: {image_path[6:]}")
+
+                        col.write(f"**Path:** {image_path[6:]}")
+                        col.write(f"**Accuracy:** {accuracy:.2f}")
+
+        self.custom_btn(
+            label="Load more", description="Load more similar images", disabled=False
+        )
 
     def image_uploader(self) -> None:
-        st.write("###### Search data by image")
+        st.write("#### Search data by image")
         uploaded_image = st.file_uploader(
             label="Upload image file",
             help="Accept only 1 image data with extensions such as 'jpeg', 'jpg', 'png'.",
             type=["jpeg", "jpg", "png"],
             accept_multiple_files=False,
         )
+
+        col1, col2 = st.columns(2)
+
         if uploaded_image:
             logging.info(f"Uploaded image {uploaded_image.name}.")
+            image_bytes = uploaded_image.read()
+            encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+            st.session_state["encoded_image"] = encoded_image
 
-            col1, col2 = st.columns(2)
+            with col1:
+                self.render_uploaded_image(
+                    encoded_image=encoded_image, filename=uploaded_image.name
+                )
+            with col2:
+                with st.spinner("Fetching prediction..."):
+                    response_api = self.fetch_similar_image()
 
-            with st.container():
-                image_bytes = uploaded_image.read()
-                encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-
-                with col1:
-                    self.render_upload(
-                        encoded_image=encoded_image, filename=uploaded_image.name
+            if response_api:
+                with col2:
+                    self.render_predicted_label(
+                        predicted_label=response_api["data"]["prediction_label"]
                     )
-
-                st.session_state["encoded_image"] = encoded_image
-                response = self.fetch_results()
-
-                if response:
-                    st.session_state["prediction_label"] = list(
-                        response["data"]["prediction_label"].keys()
-                    )
-                    st.session_state["similar_image"] = response["data"][
-                        "similar_image"
-                    ]
-                    converted = convert_dataframe(
-                        data=response["data"]["prediction_label"]
-                    )
-
-                    with col2:
-                        self.render_prediction(
-                            dataframe=converted, x_column="Label", y_column="Confidence"
-                        )
-                else:
-                    st.error(body="Failed to predict image.")
+            else:
+                st.error("Failed predicting image.")
         else:
             logging.warning("No image uploaded.")
+            st.warning("Please upload an image")
             st.session_state["encoded_image"] = None
-            st.session_state["prediction_label"] = None
-            st.session_state["similar_image"] = None
+            st.session_state["similar_image"] = []
 
     def main(self) -> None:
-        with st.container():
-            self.image_uploader()
-            self.sidebar()
+        self.update_title()
+        self.remove_deploy_btn()
+        self.session_state()
+        self.image_uploader()
+        self.render_similar_image()
+        self.sidebar()
