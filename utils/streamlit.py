@@ -1,7 +1,7 @@
 import asyncio
 import base64
 import streamlit as st
-from typing import Union
+from typing import Union, Literal
 from PIL import Image
 from utils.logger import logging
 from utils.diva import DiVAConnector
@@ -91,25 +91,19 @@ class StreamlitConfiguration:
             st.header(body="DiVA", help="DiVA stands for DFactory Image Retrieval")
             st.divider()
 
+            self.image_uploader()
             is_image_uploaded = bool(st.session_state["encoded_image"])
 
-            threshold = self.number_input(
-                label="Accuracy threshold",
+            threshold = self.slider_input(
+                label="Minimum accuracy",
                 min_value=0.1,
                 max_value=1.0,
-                default_value=0.3,
+                default_value=0.2,
                 description="Set the minimum accuracy required for retrieval results. A higher value ensures more precise matches, while a lower value allows for broader results. The threshold ranges from 0.1 (less strict) to 1.0 (highly strict).",
                 disabled=is_image_uploaded,
             )
 
             st.session_state["threshold"] = threshold
-
-            if st.session_state["encoded_image"] and st.session_state["image_filename"]:
-                st.write("##### Uploaded image")
-                self.render_uploaded_image(
-                    encoded_image=st.session_state["encoded_image"],
-                    filename=st.session_state["image_filename"],
-                )
 
             images = st.session_state["similar_image"]
 
@@ -128,9 +122,10 @@ class StreamlitConfiguration:
                     description="Load more similar images.",
                     on_click=self.handle_load_more_btn,
                     disabled=is_total_page_reached,
+                    type="primary",
                 )
 
-    def number_input(
+    def slider_input(
         self,
         label: str,
         min_value: Union[int, float],
@@ -139,7 +134,7 @@ class StreamlitConfiguration:
         description: str,
         disabled: bool = False,
     ) -> Union[int, float]:
-        return st.number_input(
+        return st.slider(
             label=label,
             min_value=min_value,
             max_value=max_value,
@@ -157,9 +152,14 @@ class StreamlitConfiguration:
         description: str,
         on_click: callable = None,
         disabled: bool = False,
+        type: Literal["primary", "secondary", "tertiary"] = "secondary",
     ) -> int:
         return st.button(
-            label=label, help=description, disabled=disabled, on_click=on_click
+            label=label,
+            help=description,
+            disabled=disabled,
+            on_click=on_click,
+            type=type,
         )
 
     def handle_load_more_btn(self) -> None:
@@ -238,15 +238,12 @@ class StreamlitConfiguration:
         logging.info(f"Elapsed rendering time time: {elapsed_time}")
 
     def image_uploader(self) -> None:
-        st.write("#### Search data by image")
         uploaded_image = st.file_uploader(
             label="Upload image file",
             help="Accept only 1 image data with extensions such as 'jpeg', 'jpg', 'png'.",
             type=["jpeg", "jpg", "png"],
             accept_multiple_files=False,
         )
-
-        col1, col2 = st.columns(2)
 
         if uploaded_image:
             logging.info(f"Uploaded image {uploaded_image.name}.")
@@ -259,15 +256,14 @@ class StreamlitConfiguration:
                 st.session_state["similar_image"] = []
                 st.session_state["image_uploaded_once"] = False
 
-            with col1:
-                self.render_uploaded_image(
-                    encoded_image=encoded_image, filename=uploaded_image.name
-                )
+            st.write("##### Uploaded image")
+            self.render_uploaded_image(
+                encoded_image=encoded_image, filename=uploaded_image.name
+            )
 
             if not st.session_state["image_uploaded_once"]:
-                with col2:
-                    with st.spinner("Fetching prediction..."):
-                        response_api = self.fetch_similar_image()
+                with st.spinner("Fetching prediction..."):
+                    response_api = self.fetch_similar_image()
 
                 if response_api:
                     st.session_state["raw_total_page"] = response_api["data"][
@@ -288,10 +284,7 @@ class StreamlitConfiguration:
 
                 else:
                     st.error("Failed predicting image.")
-            with col2:
-                self.render_predicted_label(
-                    predicted_label=st.session_state["raw_prediction_label"]
-                )
+
         else:
             st.warning("Please upload an image")
             st.session_state["encoded_image"] = None
@@ -303,6 +296,5 @@ class StreamlitConfiguration:
         self.update_title()
         self.remove_deploy_btn()
         self.session_state()
-        self.image_uploader()
         self.sidebar()
         self.render_similar_image()
