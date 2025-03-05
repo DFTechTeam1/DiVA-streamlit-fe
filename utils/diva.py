@@ -2,36 +2,35 @@ import httpx
 from typing import Optional
 from utils.logger import logging
 from src.secret import Config
+from src.schema import ImageQuery
 
 
 class DiVAConnector:
     def __init__(self):
         self.credentials = Config()
+        self.payload = ImageQuery()
 
     async def grab_similar(
         self,
-        base_model: str,
         encoded_image: str,
         threshold: float,
         page: int,
         image_per_page: int,
         prediction_label: Optional[list] = None,
     ) -> Optional[dict]:
-        body = {
-            "base_model": base_model,
-            "encoded_image": encoded_image,
-            "threshold": threshold,
-            "page": page,
-            "image_per_page": image_per_page,
-            "prediction_label": prediction_label,
-        }
+        self.payload.encoded_image = encoded_image
+        self.payload.threshold = threshold
+        self.payload.page = page
+        self.payload.prediction_label = prediction_label
 
         async with httpx.AsyncClient() as client:
             try:
-                logging.info("Proceeding with async request for image query.")
+                logging.info("Proceeding request for image query.")
 
                 response = await client.post(
-                    url=self.credentials.IMAGE_QUERY_API, json=body, timeout=120
+                    url=self.credentials.IMAGE_QUERY_API,
+                    json=self.payload.model_dump(),
+                    timeout=120,
                 )
                 response.raise_for_status()
 
