@@ -1,8 +1,10 @@
+import os
+import errno
 import asyncio
 import base64
 import streamlit as st
-from typing import Union, Literal
 from PIL import Image
+from typing import Union, Literal
 from utils.logger import logging
 from utils.diva import DiVAConnector
 from utils.helper import CustomHelper
@@ -61,9 +63,6 @@ class StreamlitConfiguration:
         if "page" not in st.session_state:
             st.session_state["page"]: int = 1
 
-        if "image_per_page" not in st.session_state:
-            st.session_state["image_per_page"]: int = 100
-
         if "prediction_label" not in st.session_state:
             st.session_state["prediction_label"]: list = None
 
@@ -98,7 +97,7 @@ class StreamlitConfiguration:
                 label="Minimum accuracy",
                 min_value=0.1,
                 max_value=1.0,
-                default_value=0.2,
+                default_value=0.15,
                 description="Set the minimum accuracy required for retrieval results. A higher value ensures more precise matches, while a lower value allows for broader results. The threshold ranges from 0.1 (less strict) to 1.0 (highly strict).",
                 disabled=is_image_uploaded,
             )
@@ -213,6 +212,11 @@ class StreamlitConfiguration:
                         image_data = images[i + j]
                         image_path = image_data["filepath"]
                         accuracy = image_data["accuracy"]
+
+                        if not os.path.exists(image_path):
+                            raise FileNotFoundError(
+                                errno.ENOENT, os.strerror(errno.ENOENT), image_path[6:]
+                            )
 
                         try:
                             image = Image.open(image_path)
