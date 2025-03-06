@@ -48,6 +48,9 @@ esac
 # Load the environment variables
 export $(grep -v '^#' $ENV_FILE | xargs)
 
+# Use APPLICATION_PORT from .env if available, otherwise use default
+APPLICATION_PORT=${APPLICATION_PORT:-$DEFAULT_PORT}
+
 # Checking OS Environment
 echo "Checking OS Environment"
 if grep -qEi "(Microsoft|WSL)" /proc/version &>/dev/null; then
@@ -74,5 +77,6 @@ else
   esac
 fi
 
-# Start the server
-streamlit run src/main.py --server.port $DEFAULT_PORT
+# Start the server with the resolved port
+echo "Starting server on port $APPLICATION_PORT..."
+streamlit run src/main.py --server.port $APPLICATION_PORT

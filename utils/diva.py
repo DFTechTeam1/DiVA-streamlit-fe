@@ -15,7 +15,6 @@ class DiVAConnector:
         encoded_image: str,
         threshold: float,
         page: int,
-        image_per_page: int,
         prediction_label: Optional[list] = None,
     ) -> Optional[dict]:
         self.payload.encoded_image = encoded_image
