@@ -176,7 +176,6 @@ class StreamlitConfiguration:
                 encoded_image=st.session_state["encoded_image"],
                 threshold=st.session_state["threshold"],
                 page=st.session_state["page"],
-                image_per_page=st.session_state["image_per_page"],
                 prediction_label=st.session_state["prediction_label"],
             )
         )
@@ -235,7 +234,7 @@ class StreamlitConfiguration:
 
         end_time = self.helper.local_time()
         elapsed_time = end_time - start_time
-        logging.info(f"Elapsed rendering time time: {elapsed_time}")
+        logging.info(f"Elapsed rendering time: {elapsed_time}")
 
     def image_uploader(self) -> None:
         uploaded_image = st.file_uploader(
