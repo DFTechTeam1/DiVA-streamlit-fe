@@ -21,7 +21,6 @@ class DiVAConnector:
         self.payload.threshold = threshold
         self.payload.page = page
         self.payload.prediction_label = prediction_label
-
         async with httpx.AsyncClient() as client:
             try:
                 logging.info("Proceeding request for image query.")
