@@ -1,9 +1,6 @@
-import os
-import errno
 import asyncio
 import base64
 import streamlit as st
-from PIL import Image
 from typing import Union, Literal
 from utils.logger import logging
 from utils.diva import DiVAConnector
@@ -24,7 +21,6 @@ class StreamlitConfiguration:
 
     def show_logo(self) -> None:
         img_path = "images/Logo - Black.png"
-
         with open(img_path, "rb") as img_file:
             encoded_string = base64.b64encode(img_file.read()).decode("utf-8")
 
@@ -41,45 +37,28 @@ class StreamlitConfiguration:
         st.markdown(
             """
             <style>
-                .reportview-container {
-                    margin-top: -2em;
-                }
-                #MainMenu {visibility: hidden;}
-                .stAppDeployButton  {visibility:hidden;}
-                footer {visibility: hidden;}
-                #stDecoration {display:none;}
+                #MainMenu, footer, .stAppDeployButton, #stDecoration {visibility: hidden;}
             </style>
             """,
             unsafe_allow_html=True,
         )
 
     def session_state(self) -> None:
-        if "encoded_image" not in st.session_state:
-            st.session_state["encoded_image"]: str = None
-
-        if "threshold" not in st.session_state:
-            st.session_state["threshold"]: float = 0.3
-
-        if "page" not in st.session_state:
-            st.session_state["page"]: int = 1
-
-        if "prediction_label" not in st.session_state:
-            st.session_state["prediction_label"]: list = None
-
-        if "raw_prediction_label" not in st.session_state:
-            st.session_state["raw_prediction_label"]: list = None
-
-        if "raw_total_page" not in st.session_state:
-            st.session_state["raw_total_page"]: int = None
-
-        if "similar_image" not in st.session_state:
-            st.session_state["similar_image"]: list = []
-
-        if "image_uploaded_once" not in st.session_state:
-            st.session_state["image_uploaded_once"]: bool = False
-
-        if "image_filename" not in st.session_state:
-            st.session_state["image_filename"]: str = False
+        defaults = {
+            "encoded_image": None,
+            "threshold": 0.3,
+            "page": 1,
+            "prediction_label": None,
+            "query_image": 100,
+            "raw_prediction_label": None,
+            "raw_total_page": None,
+            "similar_image": [],
+            "image_uploaded_once": False,
+            "image_filename": None,
+        }
+        for key, value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
 
     def sidebar(self) -> None:
         with st.sidebar:
@@ -87,40 +66,44 @@ class StreamlitConfiguration:
             st.markdown(
                 "<div style='margin-bottom: 35px;'></div>", unsafe_allow_html=True
             )
-            st.header(body="DiVA", help="DiVA stands for DFactory Image Retrieval")
+            st.header("DiVA", help="DiVA stands for DFactory Image Retrieval")
             st.divider()
 
             self.image_uploader()
             is_image_uploaded = bool(st.session_state["encoded_image"])
 
             threshold = self.slider_input(
-                label="Minimum accuracy",
+                label="Minimum classification accuracy",
                 min_value=0.1,
-                max_value=1.0,
+                max_value=0.7,
                 default_value=0.15,
                 description="Set the minimum accuracy required for retrieval results. A higher value ensures more precise matches, while a lower value allows for broader results. The threshold ranges from 0.1 (less strict) to 1.0 (highly strict).",
                 disabled=is_image_uploaded,
             )
 
+            query_image = self.slider_input(
+                label="Total query image",
+                min_value=50,
+                max_value=200,
+                default_value=100,
+                description="Choose how many images to search through. A lower number means faster results but a lower chance of finding the best match. A higher number improves accuracy but takes longer process. (Tip: Start with 50 and increase if needed.)",
+            )
+
             st.session_state["threshold"] = threshold
+            st.session_state["query_image"] = query_image
 
-            images = st.session_state["similar_image"]
-
-            if images:
-                is_total_page_reached = (
-                    True
-                    if int(st.session_state["raw_total_page"])
-                    == int(st.session_state["page"])
-                    else False
+            if st.session_state["similar_image"]:
+                is_max_page_reached = (
+                    st.session_state["page"] >= st.session_state["raw_total_page"]
                 )
-                if is_total_page_reached:
+                if is_max_page_reached:
                     st.warning("Reached maximum page.")
 
                 self.custom_btn(
                     label="Load more",
                     description="Load more similar images.",
                     on_click=self.handle_load_more_btn,
-                    disabled=is_total_page_reached,
+                    disabled=is_max_page_reached,
                     type="primary",
                 )
 
@@ -134,16 +117,13 @@ class StreamlitConfiguration:
         disabled: bool = False,
     ) -> Union[int, float]:
         return st.slider(
-            label=label,
-            min_value=min_value,
-            max_value=max_value,
-            value=default_value,
+            label,
+            min_value,
+            max_value,
+            default_value,
             help=description,
             disabled=disabled,
         )
-
-    def select_box(self, label: str, options: list, disabled: bool = False) -> str:
-        return st.selectbox(label=label, options=options, disabled=disabled)
 
     def custom_btn(
         self,
@@ -152,58 +132,57 @@ class StreamlitConfiguration:
         on_click: callable = None,
         disabled: bool = False,
         type: Literal["primary", "secondary", "tertiary"] = "secondary",
-    ) -> int:
-        return st.button(
-            label=label,
-            help=description,
-            disabled=disabled,
-            on_click=on_click,
-            type=type,
+    ) -> None:
+        st.button(
+            label, help=description, disabled=disabled, on_click=on_click, type=type
         )
 
     def handle_load_more_btn(self) -> None:
         st.session_state["page"] += 1
+        with st.spinner("Fetching more images..."):
+            response, status_code = asyncio.run(self.fetch_similar_image())
+        if status_code == 200:
+            st.session_state["similar_image"].extend(response["data"]["similar_image"])
+            st.session_state["raw_total_page"] = response["data"]["total_page"]
+        else:
+            st.error("Error while loading more similar images.")
 
-        with st.spinner("Fetching prediction..."):
-            response = self.fetch_similar_image()
-
-        st.session_state["similar_image"].extend(response["data"]["similar_image"])
-
-    def fetch_similar_image(self) -> dict:
-        return asyncio.run(
-            self.diva_connector.grab_similar(
-                encoded_image=st.session_state["encoded_image"],
-                threshold=st.session_state["threshold"],
-                page=st.session_state["page"],
-                prediction_label=st.session_state["prediction_label"],
-            )
+    async def fetch_similar_image(self) -> dict:
+        return await self.diva_connector.grab_similar(
+            encoded_image=st.session_state["encoded_image"],
+            threshold=st.session_state["threshold"],
+            query_image=st.session_state["query_image"],
+            page=st.session_state["page"],
+            prediction_label=st.session_state["prediction_label"],
         )
 
-    def render_uploaded_image(self, encoded_image: str, filename: str) -> None:
-        logging.info("Rendering uploaded image.")
-        decoded_image = base64.b64decode(encoded_image)
-        st.image(decoded_image, caption=f"{filename}", use_container_width=True)
-
-    def render_predicted_label(self, predicted_label: dict) -> None:
-        logging.info("Rendering predicted label.")
-        converted = self.helper.convert_dataframe(data=predicted_label)
-        st.text("Prediction Labels")
-        st.bar_chart(data=converted, x="Label", y="Confidence")
+    def render_uploaded_image(self) -> None:
+        st.image(
+            base64.b64decode(st.session_state["encoded_image"]),
+            caption=st.session_state["image_filename"],
+            use_container_width=True,
+        )
+        logging.info(f"Rendered image {st.session_state['image_filename']}.")
 
     def render_similar_image(self) -> None:
-        logging.info("Rendering similar images.")
-        start_time = self.helper.local_time()
-        images = st.session_state["similar_image"]
-        images.sort(key=lambda x: x["accuracy"], reverse=True)
+        seen = set()
+        unique_images = []
+        for img in st.session_state["similar_image"]:
+            img_tuple = tuple(img.items())
+            if img_tuple not in seen:
+                seen.add(img_tuple)
+                unique_images.append(img)
+
+        images = sorted(unique_images, key=lambda x: x["accuracy"], reverse=True)
 
         if not images and st.session_state["encoded_image"]:
-            st.warning("No similar images found.")
+            st.warning("No similar images found. Try lowering the accuracy threshold.")
 
         if images:
-            st.write("#### Similar Image")
+            logging.info("Rendering similar images.")
+            st.write("#### Similar Images")
             st.divider()
 
-        with st.spinner("Loading similar images..."):
             num_columns = 3
             for i in range(0, len(images), num_columns):
                 cols = st.columns(num_columns)
@@ -211,39 +190,20 @@ class StreamlitConfiguration:
                     if i + j < len(images):
                         image_data = images[i + j]
                         image_path = image_data["filepath"]
-                        accuracy = image_data["accuracy"]
+                        accuracy = int(float(image_data["accuracy"]) * 100)
+                        stream_image = image_data["stream_image"]
 
-                        if not os.path.exists(image_path):
-                            raise FileNotFoundError(
-                                errno.ENOENT, os.strerror(errno.ENOENT), image_path[6:]
-                            )
-
-                        try:
-                            image = Image.open(image_path)
-                            col.image(image, use_container_width=True)
-                        except Exception:
-                            col.error(f"Failed to load image: {image_path[6:]}")
-
+                        col.image(stream_image, use_container_width=True)
                         col.caption(f"Path: {image_path[6:]}")
-                        col.caption(f"Accuracy: {accuracy:.2f}")
-        if images:
-            is_total_page_reached = (
-                True
-                if int(st.session_state["raw_total_page"])
-                == int(st.session_state["page"])
-                else False
-            )
-            if is_total_page_reached:
-                st.warning("Reached maximum page.")
+                        col.caption(f"Similarity Score: {accuracy}%")
 
-        end_time = self.helper.local_time()
-        elapsed_time = end_time - start_time
-        logging.info(f"Elapsed rendering time: {elapsed_time}")
+            logging.info(f"Loaded page: {st.session_state['page']}.")
+            logging.info(f"Rendered {len(images)} similar images.")
 
     def image_uploader(self) -> None:
         uploaded_image = st.file_uploader(
-            label="Upload image file",
-            help="Accept only 1 image data with extensions such as 'jpeg', 'jpg', 'png'.",
+            "Upload image file",
+            help="Accepts single image file with extension jpeg, jpg, png.",
             type=["jpeg", "jpg", "png"],
             accept_multiple_files=False,
         )
@@ -252,52 +212,70 @@ class StreamlitConfiguration:
             logging.info(f"Uploaded image {uploaded_image.name}.")
             image_bytes = uploaded_image.read()
             encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-            st.session_state["image_filename"] = uploaded_image.name
 
             if st.session_state["encoded_image"] != encoded_image:
-                st.session_state["encoded_image"] = encoded_image
-                st.session_state["similar_image"] = []
-                st.session_state["image_uploaded_once"] = False
+                st.session_state.update(
+                    {
+                        "encoded_image": encoded_image,
+                        "image_filename": uploaded_image.name,
+                        "similar_image": [],
+                        "image_uploaded_once": False,
+                        "page": 1,
+                    }
+                )
 
             st.write("##### Uploaded image")
-            self.render_uploaded_image(
-                encoded_image=encoded_image, filename=uploaded_image.name
-            )
+            self.render_uploaded_image()
 
             if not st.session_state["image_uploaded_once"]:
-                with st.spinner("Fetching prediction..."):
-                    response_api = self.fetch_similar_image()
+                with st.spinner("Searching for similar images..."):
 
-                if response_api:
-                    st.session_state["raw_total_page"] = response_api["data"][
-                        "total_page"
-                    ]
-                    st.session_state["raw_prediction_label"] = response_api["data"][
-                        "prediction_label"
-                    ]
-                    st.session_state["similar_image"] = response_api["data"][
-                        "similar_image"
-                    ]
-                    st.session_state["prediction_label"] = (
-                        self.helper.convert_predicted_label(
-                            response_api["data"]["prediction_label"]
-                        )
-                    )
-                    st.session_state["image_uploaded_once"] = True
+                    async def fetch_prediction():
+                        response_api, response_code = await self.fetch_similar_image()
+                        if response_code == 200:
+                            st.session_state.update(
+                                {
+                                    "raw_total_page": response_api["data"][
+                                        "total_page"
+                                    ],
+                                    "raw_prediction_label": response_api["data"][
+                                        "prediction_label"
+                                    ],
+                                    "similar_image": response_api["data"][
+                                        "similar_image"
+                                    ],
+                                    "prediction_label": self.helper.convert_predicted_label(
+                                        response_api["data"]["prediction_label"]
+                                    ),
+                                    "image_uploaded_once": True,
+                                }
+                            )
 
-                else:
-                    st.error("Failed predicting image.")
-
+                    asyncio.run(fetch_prediction())
         else:
-            st.warning("Please upload an image")
-            st.session_state["encoded_image"] = None
-            st.session_state["similar_image"] = []
-            st.session_state["image_filename"] = None
-            st.session_state["image_uploaded_once"] = False
+            st.warning("Please upload an image.")
+            st.session_state.update(
+                {
+                    "encoded_image": None,
+                    "threshold": 0.3,
+                    "page": 1,
+                    "prediction_label": None,
+                    "query_image": 100,
+                    "raw_prediction_label": None,
+                    "raw_total_page": None,
+                    "similar_image": [],
+                    "image_uploaded_once": False,
+                    "image_filename": None,
+                }
+            )
 
     def main(self) -> None:
+        start_time = self.helper.local_time()
         self.update_title()
         self.remove_deploy_btn()
         self.session_state()
         self.sidebar()
         self.render_similar_image()
+        end_time = self.helper.local_time()
+        elapsed_time = end_time - start_time
+        logging.info(f"Elapsed process time: {elapsed_time}")
