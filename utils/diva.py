@@ -15,23 +15,26 @@ class DiVAConnector:
         encoded_image: str,
         threshold: float,
         page: int,
-        query_image: int,
         prediction_label: Optional[list] = None,
     ) -> tuple[dict, int]:
         self.payload.encoded_image = encoded_image
         self.payload.threshold = threshold
         self.payload.page = page
-        self.payload.query_image = query_image
         self.payload.prediction_label = prediction_label
-        async with httpx.AsyncClient() as client:
-            logging.info("Proceeding request for image query.")
+        try:
+            async with httpx.AsyncClient() as client:
+                logging.info("Proceeding request for image query.")
 
-            response = await client.post(
-                url=self.credentials.IMAGE_QUERY_API,
-                json=self.payload.model_dump(),
-                timeout=120,
+                response = await client.post(
+                    url=self.credentials.IMAGE_QUERY_API,
+                    json=self.payload.model_dump(),
+                    timeout=120,
+                )
+
+                data = response.json()
+
+                return data, response.status_code
+        except httpx.ConnectError:
+            raise Exception(
+                "Unable to connect backend service. Please ensure backend server is ready."
             )
-
-            data = response.json()
-
-            return data, response.status_code
