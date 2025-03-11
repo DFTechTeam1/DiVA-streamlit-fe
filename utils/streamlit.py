@@ -49,9 +49,9 @@ class StreamlitConfiguration:
             "threshold": 0.3,
             "page": 1,
             "prediction_label": None,
-            "query_image": 100,
             "raw_prediction_label": None,
             "raw_total_page": None,
+            "raw_total_image": None,
             "similar_image": [],
             "image_uploaded_once": False,
             "image_filename": None,
@@ -81,23 +81,12 @@ class StreamlitConfiguration:
                 disabled=is_image_uploaded,
             )
 
-            query_image = self.slider_input(
-                label="Total query image",
-                min_value=50,
-                max_value=200,
-                default_value=100,
-                description="Choose how many images to search through. A lower number means faster results but a lower chance of finding the best match. A higher number improves accuracy but takes longer process. (Tip: Start with 50 and increase if needed.)",
-            )
-
             st.session_state["threshold"] = threshold
-            st.session_state["query_image"] = query_image
 
             if st.session_state["similar_image"]:
                 is_max_page_reached = (
                     st.session_state["page"] >= st.session_state["raw_total_page"]
                 )
-                if is_max_page_reached:
-                    st.warning("Reached maximum page.")
 
                 self.custom_btn(
                     label="Load more",
@@ -148,13 +137,18 @@ class StreamlitConfiguration:
             st.error("Error while loading more similar images.")
 
     async def fetch_similar_image(self) -> dict:
-        return await self.diva_connector.grab_similar(
+        start_time = self.helper.local_time()
+        data, response_code = await self.diva_connector.grab_similar(
             encoded_image=st.session_state["encoded_image"],
             threshold=st.session_state["threshold"],
-            query_image=st.session_state["query_image"],
             page=st.session_state["page"],
             prediction_label=st.session_state["prediction_label"],
         )
+        end_time = self.helper.local_time()
+        elapsed_time = end_time - start_time
+        logging.info(f"Elapsed fetching similar image time: {elapsed_time}")
+
+        return data, response_code
 
     def render_uploaded_image(self) -> None:
         st.image(
@@ -180,7 +174,17 @@ class StreamlitConfiguration:
 
         if images:
             logging.info("Rendering similar images.")
+
+            total_page = int(st.session_state["raw_total_page"])
+            current_page = int(st.session_state["page"])
+            remaining_page = total_page - current_page
+
             st.write("#### Similar Images")
+            if remaining_page != 0:
+                st.info(f"Remaining page to load: {remaining_page} page left.")
+            else:
+                st.error("Reached maximum page.")
+
             st.divider()
 
             num_columns = 3
@@ -194,8 +198,8 @@ class StreamlitConfiguration:
                         stream_image = image_data["stream_image"]
 
                         col.image(stream_image, use_container_width=True)
-                        col.caption(f"Path: {image_path[6:]}")
-                        col.caption(f"Similarity Score: {accuracy}%")
+                        col.write(f"**Path: {image_path[6:]}**")
+                        col.write(f"*Similarity score: {accuracy}%*")
 
             logging.info(f"Loaded page: {st.session_state['page']}.")
             logging.info(f"Rendered {len(images)} similar images.")
@@ -270,12 +274,8 @@ class StreamlitConfiguration:
             )
 
     def main(self) -> None:
-        start_time = self.helper.local_time()
         self.update_title()
         self.remove_deploy_btn()
         self.session_state()
         self.sidebar()
         self.render_similar_image()
-        end_time = self.helper.local_time()
-        elapsed_time = end_time - start_time
-        logging.info(f"Elapsed process time: {elapsed_time}")
