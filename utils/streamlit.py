@@ -87,19 +87,21 @@ class StreamlitConfiguration:
                 raw_page = int(st.session_state["raw_total_page"])
                 page_options = self.helper.convert_page(total_page=raw_page)
                 page = self.select_box(label="Page", options=page_options)
-                st.session_state["page"] = page
+                if page != st.session_state["page"]:
+                    st.session_state["page"] = page
 
-                with st.spinner("Fetching more images..."):
-                    response, status_code = asyncio.run(self.fetch_similar_image())
+                    with st.spinner("Fetching more images..."):
+                        response, status_code = asyncio.run(self.fetch_similar_image())
 
-                if status_code == 200:
-                    st.session_state["similar_image"] = []
-                    st.session_state["similar_image"] = response["data"][
-                        "similar_image"
-                    ]
-                    st.session_state["raw_total_page"] = response["data"]["total_page"]
-                else:
-                    st.error("Error loading more similar images.")
+                    if status_code == 200:
+                        st.session_state["similar_image"] = response["data"][
+                            "similar_image"
+                        ]
+                        st.session_state["raw_total_page"] = response["data"][
+                            "total_page"
+                        ]
+                    else:
+                        st.error("Error loading more similar images.")
 
     def slider_input(
         self,
