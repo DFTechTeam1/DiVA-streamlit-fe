@@ -48,10 +48,10 @@ class StreamlitConfiguration:
             "encoded_image": None,
             "threshold": 0.3,
             "page": 1,
+            "filename": None,
             "prediction_label": None,
             "raw_prediction_label": None,
             "raw_total_page": None,
-            "raw_total_image": None,
             "similar_image": [],
             "image_uploaded_once": False,
             "image_filename": None,
@@ -84,17 +84,22 @@ class StreamlitConfiguration:
             st.session_state["threshold"] = threshold
 
             if st.session_state["similar_image"]:
-                is_max_page_reached = (
-                    st.session_state["page"] >= st.session_state["raw_total_page"]
-                )
+                raw_page = int(st.session_state["raw_total_page"])
+                page_options = self.helper.convert_page(total_page=raw_page)
+                page = self.select_box(label="Page", options=page_options)
+                st.session_state["page"] = page
 
-                self.custom_btn(
-                    label="Load more",
-                    description="Load more similar images.",
-                    on_click=self.handle_load_more_btn,
-                    disabled=is_max_page_reached,
-                    type="primary",
-                )
+                with st.spinner("Fetching more images..."):
+                    response, status_code = asyncio.run(self.fetch_similar_image())
+
+                if status_code == 200:
+                    st.session_state["similar_image"] = []
+                    st.session_state["similar_image"] = response["data"][
+                        "similar_image"
+                    ]
+                    st.session_state["raw_total_page"] = response["data"]["total_page"]
+                else:
+                    st.error("Error loading more similar images.")
 
     def slider_input(
         self,
@@ -114,6 +119,19 @@ class StreamlitConfiguration:
             disabled=disabled,
         )
 
+    def select_box(
+        self,
+        label: str,
+        options: list,
+        disabled: bool = False,
+        on_change: callable = None,
+    ) -> int:
+        page = st.selectbox(
+            label=label, options=options, on_change=on_change, disabled=disabled
+        )
+        page_num = self.helper.convert_to_num(page=page)
+        return page_num
+
     def custom_btn(
         self,
         label: str,
@@ -126,19 +144,10 @@ class StreamlitConfiguration:
             label, help=description, disabled=disabled, on_click=on_click, type=type
         )
 
-    def handle_load_more_btn(self) -> None:
-        st.session_state["page"] += 1
-        with st.spinner("Fetching more images..."):
-            response, status_code = asyncio.run(self.fetch_similar_image())
-        if status_code == 200:
-            st.session_state["similar_image"].extend(response["data"]["similar_image"])
-            st.session_state["raw_total_page"] = response["data"]["total_page"]
-        else:
-            st.error("Error while loading more similar images.")
-
     async def fetch_similar_image(self) -> dict:
         start_time = self.helper.local_time()
         data, response_code = await self.diva_connector.grab_similar(
+            filename=st.session_state["filename"],
             encoded_image=st.session_state["encoded_image"],
             threshold=st.session_state["threshold"],
             page=st.session_state["page"],
@@ -149,6 +158,11 @@ class StreamlitConfiguration:
         logging.info(f"Elapsed fetching similar image time: {elapsed_time}")
 
         return data, response_code
+
+    def handle_change_page(self) -> bool:
+        if st.session_state["page"] != st.session_state["page"]:
+            return True
+        return False
 
     def render_uploaded_image(self) -> None:
         st.image(
@@ -174,35 +188,30 @@ class StreamlitConfiguration:
 
         if images:
             logging.info("Rendering similar images.")
+            with st.spinner("Rendering images..."):
+                total_page = int(st.session_state["raw_total_page"])
+                current_page = int(st.session_state["page"])
+                total_page - current_page
 
-            total_page = int(st.session_state["raw_total_page"])
-            current_page = int(st.session_state["page"])
-            remaining_page = total_page - current_page
+                st.write(f"#### Similar Images (Page {st.session_state['page']})")
+                st.divider()
 
-            st.write("#### Similar Images")
-            if remaining_page != 0:
-                st.info(f"Remaining page to load: {remaining_page} page left.")
-            else:
-                st.error("Reached maximum page.")
+                num_columns = 3
+                for i in range(0, len(images), num_columns):
+                    cols = st.columns(num_columns)
+                    for j, col in enumerate(cols):
+                        if i + j < len(images):
+                            image_data = images[i + j]
+                            image_path = image_data["filepath"]
+                            accuracy = int(float(image_data["accuracy"]) * 100)
+                            stream_image = image_data["stream_image"]
 
-            st.divider()
+                            col.image(stream_image, use_container_width=True)
+                            col.write(f"**Path: {image_path[6:]}**")
+                            col.write(f"*Similarity score: {accuracy}%*")
 
-            num_columns = 3
-            for i in range(0, len(images), num_columns):
-                cols = st.columns(num_columns)
-                for j, col in enumerate(cols):
-                    if i + j < len(images):
-                        image_data = images[i + j]
-                        image_path = image_data["filepath"]
-                        accuracy = int(float(image_data["accuracy"]) * 100)
-                        stream_image = image_data["stream_image"]
-
-                        col.image(stream_image, use_container_width=True)
-                        col.write(f"**Path: {image_path[6:]}**")
-                        col.write(f"*Similarity score: {accuracy}%*")
-
-            logging.info(f"Loaded page: {st.session_state['page']}.")
-            logging.info(f"Rendered {len(images)} similar images.")
+                logging.info(f"Loaded page: {st.session_state['page']}.")
+                logging.info(f"Rendered {len(images)} similar images.")
 
     def image_uploader(self) -> None:
         uploaded_image = st.file_uploader(
@@ -220,6 +229,7 @@ class StreamlitConfiguration:
             if st.session_state["encoded_image"] != encoded_image:
                 st.session_state.update(
                     {
+                        "filename": uploaded_image.name,
                         "encoded_image": encoded_image,
                         "image_filename": uploaded_image.name,
                         "similar_image": [],
@@ -260,6 +270,7 @@ class StreamlitConfiguration:
             st.warning("Please upload an image.")
             st.session_state.update(
                 {
+                    "filename": None,
                     "encoded_image": None,
                     "threshold": 0.3,
                     "page": 1,

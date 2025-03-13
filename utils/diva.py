@@ -12,11 +12,13 @@ class DiVAConnector:
 
     async def grab_similar(
         self,
+        filename: str,
         encoded_image: str,
         threshold: float,
         page: int,
         prediction_label: Optional[list] = None,
     ) -> tuple[dict, int]:
+        self.payload.filename = filename
         self.payload.encoded_image = encoded_image
         self.payload.threshold = threshold
         self.payload.page = page
