@@ -1,7 +1,7 @@
 #!/bin/sh
 
 show_help() {
-  echo "Usage: sh scripts/run_test [ --development | --staging | --production ] [--unit_test | --api_test | --e2e | --help ]"
+  echo "Usage: sh scripts/run_test [ --development | --staging | --production ] | [ --unit_test | --api_test | --e2e] | [ --port ] | [ --help ] "
   echo ""
   echo "Environment Options:"
   echo "  --development    Set the environment to development."
@@ -33,10 +33,10 @@ while [ $# -gt 0 ]; do
       ENV_FILE="env/.env.production"
       ;;
     --unit_test)
-      TEST_DIR="tests/unit_test"
+      TEST_DIR="tests/unit"
       ;;
     --api_test)
-      TEST_DIR="tests/api_test"
+      TEST_DIR="tests/api"
       ;;
     --e2e)
       TEST_DIR="tests/e2e"
