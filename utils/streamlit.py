@@ -286,9 +286,16 @@ class StreamlitConfiguration:
                 }
             )
 
+    def maintenance(self) -> None:
+        st.warning(
+            "The DiVA application is currently undergoing maintenance. Please check back later."
+        )
+        st.stop()
+
     def main(self) -> None:
         self.update_title()
         self.remove_deploy_btn()
         self.session_state()
-        self.sidebar()
-        self.render_similar_image()
+        # self.sidebar()
+        # self.render_similar_image()
+        self.maintenance()
