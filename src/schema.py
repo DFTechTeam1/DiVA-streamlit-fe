@@ -7,4 +7,4 @@ class ImageQuery(BaseModel):
     filename: str = None
     threshold: float = Field(default=0.3, ge=0.1, le=1.0)
     page: int = Field(default=1, ge=1)
-    prediction_label: Optional[list] = None
+    prediction: Optional[list] = None

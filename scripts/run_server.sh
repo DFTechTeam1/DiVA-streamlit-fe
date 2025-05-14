@@ -1,32 +1,28 @@
-#!/bin/bash
+#!/bin/sh
 
+# Show usage information
 show_help() {
-  echo "Usage: bash scripts/run_server.sh [ --development | --staging | --production ] [ --port ]"
+  echo "Usage: sh scripts/run_server.sh [ --development | --staging | --production ] [ --port <number> ]"
   echo ""
-  echo "--development    Run the server on localhost and load the .env.development file"
-  echo "--staging        Run the server on the staging IP and load the .env.staging file"
-  echo "--production     Run the server on the production IP address and load the .env.production file"
+  echo "--development    Run the server on localhost using .env.development"
+  echo "--staging        Run the server on staging IP using .env.staging"
+  echo "--production     Run the server on production IP using .env.production"
+  echo "--port           (Optional) Override default port (default: APPLICATION_PORT from .env)"
   echo "--help           Show this help message"
-  echo ""
-  echo "Example: "
-  echo "sh scripts/run_server.sh --development --22000"
 }
 
-# Validate first argument (environment)
-if [ -z "$1" ]; then
-  echo "Error: No environment specified. Please provide one of --development, --staging, or --production."
-  show_help
-  exit 1
-fi
-
+# Default values
 ENV_FILE=""
-APPLICATION_PORT="15000"
+RELOAD_FLAG=""
+CUSTOM_PORT=""
+PORT=""
 
-# Handle environment selection
+# Parse first argument (environment)
 case "$1" in
   --development)
     echo "Using development environment configuration"
     ENV_FILE="env/.env.development"
+    RELOAD_FLAG="--reload --reload-dir=src"
     ;;
   --staging)
     echo "Using staging environment configuration"
@@ -41,45 +37,70 @@ case "$1" in
     exit 0
     ;;
   *)
-    echo "Invalid option: $1"
+    echo "Error: Invalid or missing environment option: $1"
     show_help
     exit 1
     ;;
 esac
 
-# Handle custom port (optional)
-if [ -n "$2" ]; then
-  if echo "$2" | grep -qE "^--[0-9]+$"; then
-    APPLICATION_PORT=$(echo "$2" | sed 's/^--//')
+# Parse optional second argument for port
+if [ "$2" = "--port" ]; then
+  if echo "$3" | grep -qE '^[0-9]+$'; then
+    CUSTOM_PORT="$3"
   else
-    echo "Invalid port format. Use --<port> (e.g., --22000)"
+    echo "Error: Invalid port number '$3'. Must be numeric."
+    show_help
     exit 1
   fi
-fi
-
-# Load environment variables from .env file safely
-if [ -f "$ENV_FILE" ]; then
-  set -a
-  . "$ENV_FILE"
-  set +a
-else
-  echo "Environment file '$ENV_FILE' not found."
+elif [ -n "$2" ]; then
+  echo "Error: Invalid argument: $2"
+  show_help
   exit 1
 fi
 
-# Detect and activate virtual environment
+# Load the environment variables
+export $(grep -v '^#' $ENV_FILE | xargs)
+
+# Set HOST from IP_HOST in .env file (default to 127.0.0.1)
+HOST=${IP_HOST:-"127.0.0.1"}
+
+# Set PORT from environment or custom override
+if [ -n "$CUSTOM_PORT" ]; then
+  PORT="$CUSTOM_PORT"
+else
+  if [ -z "$APPLICATION_PORT" ]; then
+    echo "Error: APPLICATION_PORT not set in $ENV_FILE"
+    exit 1
+  fi
+  PORT="$APPLICATION_PORT"
+fi
+
+# Checking OS Environment
 echo "Checking OS Environment"
 if grep -qEi "(Microsoft|WSL)" /proc/version &>/dev/null; then
   echo "WSL detected"
   . .venv/bin/activate
 else
   case "$OSTYPE" in
-    linux*)   echo "Linux OS detected" && source .venv/bin/activate ;;
-    darwin*)  echo "macOS detected" && source .venv/bin/activate ;;
-    cygwin* | msys* | mingw*) echo "Windows OS detected" && source .venv/Scripts/activate ;;
-    *) echo "Unsupported OS." && exit 1 ;;
+    linux*)
+      echo "Linux based OS detected"
+      source .venv/bin/activate
+      ;;
+    darwin*)
+      echo "macOS detected"
+      source .venv/bin/activate
+      ;;
+    cygwin* | msys* | mingw*)
+      echo "Windows based OS detected"
+      source .venv/Scripts/activate
+      ;;
+    *)
+      echo "Unsupported OS."
+      exit 1
+      ;;
   esac
 fi
+
 
 echo "Starting server on port $APPLICATION_PORT"
 streamlit run src/main.py --server.port $APPLICATION_PORT

@@ -1,3 +1,4 @@
+import os
 import asyncio
 import base64
 import streamlit as st
@@ -49,8 +50,8 @@ class StreamlitConfiguration:
             "threshold": 0.3,
             "page": 1,
             "filename": None,
-            "prediction_label": None,
-            "raw_prediction_label": None,
+            "prediction": None,
+            "raw_prediction": None,
             "raw_total_page": None,
             "similar_image": [],
             "image_uploaded_once": False,
@@ -153,7 +154,7 @@ class StreamlitConfiguration:
             encoded_image=st.session_state["encoded_image"],
             threshold=st.session_state["threshold"],
             page=st.session_state["page"],
-            prediction_label=st.session_state["prediction_label"],
+            prediction=st.session_state["prediction"],
         )
         end_time = self.helper.local_time()
         elapsed_time = end_time - start_time
@@ -183,7 +184,7 @@ class StreamlitConfiguration:
                 seen.add(img_tuple)
                 unique_images.append(img)
 
-        images = sorted(unique_images, key=lambda x: x["accuracy"], reverse=True)
+        images = sorted(unique_images, key=lambda x: x["score"], reverse=True)
 
         if not images and st.session_state["encoded_image"]:
             st.warning("No similar images found. Try lowering the accuracy threshold.")
@@ -204,12 +205,17 @@ class StreamlitConfiguration:
                     for j, col in enumerate(cols):
                         if i + j < len(images):
                             image_data = images[i + j]
-                            image_path = image_data["filepath"]
-                            accuracy = int(float(image_data["accuracy"]) * 100)
-                            stream_image = image_data["stream_image"]
+                            image_path = image_data["path"]
+                            directory_path = os.path.dirname(image_path)
+                            relative_path = directory_path.replace(
+                                "/home/dfactory/Project/DiVA-streamlit-be/mount/", ""
+                            )
+                            removed_preview = relative_path.replace("/PREVIEW", "")
+                            accuracy = int(float(image_data["score"]) * 100)
+                            stream_image = image_data["image_stream"]
 
                             col.image(stream_image, use_container_width=True)
-                            col.write(f"**Path: {image_path[6:]}**")
+                            col.write(f"**Path: {removed_preview}**")
                             col.write(f"*Similarity score: {accuracy}%*")
 
                 logging.info(f"Loaded page: {st.session_state['page']}.")
@@ -254,15 +260,13 @@ class StreamlitConfiguration:
                                     "raw_total_page": response_api["data"][
                                         "total_page"
                                     ],
-                                    "raw_prediction_label": response_api["data"][
-                                        "prediction_label"
+                                    "raw_prediction": response_api["data"][
+                                        "prediction"
                                     ],
                                     "similar_image": response_api["data"][
                                         "similar_image"
                                     ],
-                                    "prediction_label": self.helper.convert_predicted_label(
-                                        response_api["data"]["prediction_label"]
-                                    ),
+                                    "prediction": response_api["data"]["prediction"],
                                     "image_uploaded_once": True,
                                 }
                             )
@@ -276,9 +280,9 @@ class StreamlitConfiguration:
                     "encoded_image": None,
                     "threshold": 0.3,
                     "page": 1,
-                    "prediction_label": None,
+                    "prediction": None,
                     "query_image": 100,
-                    "raw_prediction_label": None,
+                    "raw_predictions": None,
                     "raw_total_page": None,
                     "similar_image": [],
                     "image_uploaded_once": False,
@@ -296,6 +300,6 @@ class StreamlitConfiguration:
         self.update_title()
         self.remove_deploy_btn()
         self.session_state()
-        # self.sidebar()
-        # self.render_similar_image()
-        self.maintenance()
+        self.sidebar()
+        self.render_similar_image()
+        # self.maintenance()
