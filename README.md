@@ -28,7 +28,7 @@ This project was developed using WSL (Ubuntu 24.04.2 LTS on Windows 11) and Pyth
     ```
 2. **Start the server**
     ```
-    sh scripts/run_server.sh --development
+    sh scripts/run_server.sh --env development --port 25000
     ```
 
 # Project Features
