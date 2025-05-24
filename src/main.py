@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from utils.streamlit import StreamlitConfiguration
+from utils.streamlit import DiVA
 
-streamlit = StreamlitConfiguration()
-streamlit.main()
+diva = DiVA()
+diva.run()

@@ -1,305 +1,198 @@
 import os
 import asyncio
 import base64
+from pathlib import Path
+
 import streamlit as st
-from typing import Union, Literal
+
 from utils.logger import logging
-from utils.diva import DiVAConnector
-from utils.helper import CustomHelper
+from utils.diva import fetch
+from utils.helper import local_time, to_num, to_page
 
 
-class StreamlitConfiguration:
-    def __init__(self) -> None:
-        self.diva_connector = DiVAConnector()
-        self.helper = CustomHelper()
-
-    def update_title(self) -> None:
-        st.set_page_config(
-            layout="wide",
-            page_title="DiVA",
-            page_icon="images/logo white - alt 2-01.png",
-        )
-
-    def show_logo(self) -> None:
-        img_path = "images/Logo - Black.png"
-        with open(img_path, "rb") as img_file:
-            encoded_string = base64.b64encode(img_file.read()).decode("utf-8")
-
+class DivaViewRenderer:
+    @staticmethod
+    def render_logo():
+        with open('images/Logo - Black.png', 'rb') as img_file:
+            encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
         st.markdown(
             f"""
-            <div style="display: flex; justify-content: center;">
-                <img src="data:image/png;base64,{encoded_string}" width="200">
-            </div>
+                <div style="display: flex; justify-content: center;">
+                    <img src="data:image/png;base64,{encoded_string}" width="200">
+                </div>
             """,
             unsafe_allow_html=True,
         )
 
-    def remove_deploy_btn(self) -> None:
-        st.markdown(
-            """
+    @staticmethod
+    def render_uploaded_image(encoded_image, filename):
+        st.image(
+            base64.b64decode(encoded_image),
+            caption=filename,
+            use_container_width=True
+        )
+
+    @staticmethod
+    def render_similar_images(images, page, mount_dir):
+        seen = set()
+        unique = []
+        if images:
+            unique = [img for img in images if tuple(img.items()) not in seen and not seen.add(tuple(img.items()))]
+
+        sorted_imgs = sorted(unique, key=lambda x: x['score'], reverse=True)
+
+        if sorted_imgs:
+            st.spinner('Rendering images...')
+            st.write(f"#### Similar Images (Page {page})")
+            st.divider()
+
+            for i in range(0, len(sorted_imgs), 3):
+                cols = st.columns(3)
+                for j, col in enumerate(cols):
+                    if i + j < len(sorted_imgs):
+                        img_data = sorted_imgs[i + j]
+                        relative = img_data['path'].replace(mount_dir, '')
+                        url = img_data['image_stream'].replace('http://0.0.0.0:14000', 'http://localhost:14000')
+
+                        col.image(url, use_container_width=True)
+                        col.write(f'**Project path: {relative}**')
+                        col.write(f'*Similarity score: {img_data["score"]}%*')
+
+            logging.info(f'Rendered {len(sorted_imgs)} similar images on page {page}.')
+        else:
+            st.warning('Similar images not found.')
+
+
+class DiVA:
+    def __init__(self):
+        self.mount_dir = os.path.join(Path(__file__).resolve().parents[1], 'mount')
+        self.page_config()
+        self.hide_deploy_ui()
+        self.init_session_state()
+
+    def page_config(self):
+        st.set_page_config(layout='wide', page_title='DiVA', page_icon='images/logo white - alt 2-01.png')
+
+    def hide_deploy_ui(self):
+        st.markdown("""
             <style>
                 #MainMenu, footer, .stAppDeployButton, #stDecoration {visibility: hidden;}
             </style>
-            """,
-            unsafe_allow_html=True,
-        )
+        """, unsafe_allow_html=True)
 
-    def session_state(self) -> None:
+    def init_session_state(self):
         defaults = {
-            "encoded_image": None,
-            "threshold": 0.3,
-            "page": 1,
-            "filename": None,
-            "prediction": None,
-            "raw_prediction": None,
-            "raw_total_page": None,
-            "similar_image": [],
-            "image_uploaded_once": False,
-            "image_filename": None,
+            'encoded_image': None,
+            'threshold': 0.3,
+            'page': 1,
+            'similar_image': None,
+            'total_page': 0,
+            'page_changed': False,
         }
         for key, value in defaults.items():
             if key not in st.session_state:
                 st.session_state[key] = value
 
-    def sidebar(self) -> None:
+    def render_sidebar(self):
         with st.sidebar:
-            self.show_logo()
-            st.markdown(
-                "<div style='margin-bottom: 35px;'></div>", unsafe_allow_html=True
-            )
-            st.header("DiVA", help="DiVA stands for DFactory Image Retrieval")
+            DivaViewRenderer.render_logo()
+            st.markdown("<div style='margin-bottom: 35px;'></div>", unsafe_allow_html=True)
+            st.header('DiVA', help='DiVA stands for DFactory Image Retrieval')
             st.divider()
 
             self.image_uploader()
-            is_image_uploaded = bool(st.session_state["encoded_image"])
 
-            threshold = self.slider_input(
-                label="Minimum classification accuracy",
+            threshold = st.slider(
+                label='Minimum classification accuracy',
                 min_value=0.1,
                 max_value=0.7,
-                default_value=0.15,
-                description="Set the minimum accuracy required for retrieval results. A higher value ensures more precise matches, while a lower value allows for broader results. The threshold ranges from 0.1 (less strict) to 1.0 (highly strict).",
-                disabled=is_image_uploaded,
+                value=0.3,
+                help='Set the minimum accuracy required for retrieval results.',
             )
+            if threshold != st.session_state['threshold']:
+                logging.info(f'Threshold changed from {st.session_state["threshold"]} to {threshold}')
+                st.session_state['page'] = 1
+                st.session_state['threshold'] = threshold
+                print(st.session_state['total_page'])
+                print(st.session_state['page'])
+                print(st.session_state['threshold'])
+                asyncio.run(self.update_similar_images())
 
-            st.session_state["threshold"] = threshold
-
-            if st.session_state["similar_image"]:
-                raw_page = int(st.session_state["raw_total_page"])
-                page_options = self.helper.convert_page(total_page=raw_page)
-                page = self.select_box(label="Page", options=page_options)
-                if page != st.session_state["page"]:
-                    st.session_state["page"] = page
-
-                    with st.spinner("Fetching more images..."):
-                        response, status_code = asyncio.run(self.fetch_similar_image())
-
-                    if status_code == 200:
-                        st.session_state["similar_image"] = response["data"][
-                            "similar_image"
-                        ]
-                        st.session_state["raw_total_page"] = response["data"][
-                            "total_page"
-                        ]
-                    else:
-                        st.error("Error loading more similar images.")
-
-    def slider_input(
-        self,
-        label: str,
-        min_value: Union[int, float],
-        max_value: Union[int, float],
-        default_value: Union[int, float],
-        description: str,
-        disabled: bool = False,
-    ) -> Union[int, float]:
-        return st.slider(
-            label,
-            min_value,
-            max_value,
-            default_value,
-            help=description,
-            disabled=disabled,
-        )
-
-    def select_box(
-        self,
-        label: str,
-        options: list,
-        disabled: bool = False,
-        on_change: callable = None,
-    ) -> int:
-        page = st.selectbox(
-            label=label, options=options, on_change=on_change, disabled=disabled
-        )
-        page_num = self.helper.convert_to_num(page=page)
-        return page_num
-
-    def custom_btn(
-        self,
-        label: str,
-        description: str,
-        on_click: callable = None,
-        disabled: bool = False,
-        type: Literal["primary", "secondary", "tertiary"] = "secondary",
-    ) -> None:
-        st.button(
-            label, help=description, disabled=disabled, on_click=on_click, type=type
-        )
-
-    async def fetch_similar_image(self) -> dict:
-        start_time = self.helper.local_time()
-        data, response_code = await self.diva_connector.grab_similar(
-            filename=st.session_state["filename"],
-            encoded_image=st.session_state["encoded_image"],
-            threshold=st.session_state["threshold"],
-            page=st.session_state["page"],
-            prediction=st.session_state["prediction"],
-        )
-        end_time = self.helper.local_time()
-        elapsed_time = end_time - start_time
-        logging.info(f"Elapsed fetching similar image time: {elapsed_time}")
-
-        return data, response_code
-
-    def handle_change_page(self) -> bool:
-        if st.session_state["page"] != st.session_state["page"]:
-            return True
-        return False
-
-    def render_uploaded_image(self) -> None:
-        st.image(
-            base64.b64decode(st.session_state["encoded_image"]),
-            caption=st.session_state["image_filename"],
-            use_container_width=True,
-        )
-        logging.info(f"Rendered image {st.session_state['image_filename']}.")
-
-    def render_similar_image(self) -> None:
-        seen = set()
-        unique_images = []
-        for img in st.session_state["similar_image"]:
-            img_tuple = tuple(img.items())
-            if img_tuple not in seen:
-                seen.add(img_tuple)
-                unique_images.append(img)
-
-        images = sorted(unique_images, key=lambda x: x["score"], reverse=True)
-
-        if not images and st.session_state["encoded_image"]:
-            st.warning("No similar images found. Try lowering the accuracy threshold.")
-
-        if images:
-            logging.info("Rendering similar images.")
-            with st.spinner("Rendering images..."):
-                total_page = int(st.session_state["raw_total_page"])
-                current_page = int(st.session_state["page"])
-                total_page - current_page
-
-                st.write(f"#### Similar Images (Page {st.session_state['page']})")
-                st.divider()
-
-                num_columns = 3
-                for i in range(0, len(images), num_columns):
-                    cols = st.columns(num_columns)
-                    for j, col in enumerate(cols):
-                        if i + j < len(images):
-                            image_data = images[i + j]
-                            image_path = image_data["path"]
-                            directory_path = os.path.dirname(image_path)
-                            relative_path = directory_path.replace(
-                                "/home/dfactory/Project/DiVA-streamlit-be/mount/", ""
-                            )
-                            removed_preview = relative_path.replace("/PREVIEW", "")
-                            accuracy = int(float(image_data["score"]) * 100)
-                            stream_image = image_data["image_stream"]
-
-                            col.image(stream_image, use_container_width=True)
-                            col.write(f"**Path: {removed_preview}**")
-                            col.write(f"*Similarity score: {accuracy}%*")
-
-                logging.info(f"Loaded page: {st.session_state['page']}.")
-                logging.info(f"Rendered {len(images)} similar images.")
-
-    def image_uploader(self) -> None:
-        uploaded_image = st.file_uploader(
-            "Upload image file",
-            help="Accepts single image file with extension jpeg, jpg, png.",
-            type=["jpeg", "jpg", "png"],
-            accept_multiple_files=False,
-        )
-
-        if uploaded_image:
-            logging.info(f"Uploaded image {uploaded_image.name}.")
-            image_bytes = uploaded_image.read()
-            encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-
-            if st.session_state["encoded_image"] != encoded_image:
-                st.session_state.update(
-                    {
-                        "filename": uploaded_image.name,
-                        "encoded_image": encoded_image,
-                        "image_filename": uploaded_image.name,
-                        "similar_image": [],
-                        "image_uploaded_once": False,
-                        "page": 1,
-                    }
+            if st.session_state['encoded_image']:
+                page = st.selectbox(
+                    label='Page',
+                    options=to_page(int(st.session_state['total_page'])),
+                    index=st.session_state['page'] - 1,
+                    help='Select the page number to view similar images.',
+                    disabled=st.session_state['similar_image'] is None
                 )
 
-            st.write("##### Uploaded image")
-            self.render_uploaded_image()
+                if page != f"Page {st.session_state['page']}":
+                    st.session_state['page'] = to_num(page)
+                    st.session_state['page_changed'] = True
 
-            if not st.session_state["image_uploaded_once"]:
-                with st.spinner("Searching for similar images..."):
+    async def fetch_similar_image(self):
+        start_time = local_time()
+        data, response_code = await fetch(
+            encoded_image=st.session_state['encoded_image'],
+            threshold=st.session_state['threshold'],
+            page=st.session_state['page'],
+        )
+        logging.info(f"Elapsed fetching time: {local_time() - start_time}")
+        return data, response_code
 
-                    async def fetch_prediction():
-                        response_api, response_code = await self.fetch_similar_image()
-                        if response_code == 200:
-                            st.session_state.update(
-                                {
-                                    "raw_total_page": response_api["data"][
-                                        "total_page"
-                                    ],
-                                    "raw_prediction": response_api["data"][
-                                        "prediction"
-                                    ],
-                                    "similar_image": response_api["data"][
-                                        "similar_image"
-                                    ],
-                                    "prediction": response_api["data"]["prediction"],
-                                    "image_uploaded_once": True,
-                                }
-                            )
+    def handle_threshold_change(self):
+        st.session_state['page'] = 1
+        asyncio.run(self.update_similar_images())
 
-                    asyncio.run(fetch_prediction())
+    def handle_image_upload(self, uploaded_image):
+        logging.info(f'Uploaded image {uploaded_image.name}')
+        encoded = base64.b64encode(uploaded_image.read()).decode('utf-8')
+        st.session_state['encoded_image'] = encoded
+        st.session_state['page'] = 1
+        DivaViewRenderer.render_uploaded_image(encoded, uploaded_image.name)
+        with st.spinner('Searching for similar images...'):
+            asyncio.run(self.update_similar_images())
+
+    async def update_similar_images(self):
+        response, code = await self.fetch_similar_image()
+        if code == 200:
+            st.session_state.update({
+                'total_page': response['data']['total_page'],
+                'similar_image': response['data']['similar_image']
+            })
         else:
-            st.warning("Please upload an image.")
-            st.session_state.update(
-                {
-                    "filename": None,
-                    "encoded_image": None,
-                    "threshold": 0.3,
-                    "page": 1,
-                    "prediction": None,
-                    "query_image": 100,
-                    "raw_predictions": None,
-                    "raw_total_page": None,
-                    "similar_image": [],
-                    "image_uploaded_once": False,
-                    "image_filename": None,
-                }
+            st.warning('Similar imaes not found, please lower the threshold.')
+            st.session_state['similar_image'] = None
+
+    def render_similar_images(self):
+        if st.session_state.get('page_changed', False):
+            with st.spinner('Loading new page...'):
+                asyncio.run(self.update_similar_images())
+            st.session_state['page_changed'] = False
+
+        if st.session_state['encoded_image']:
+            DivaViewRenderer.render_similar_images(
+                st.session_state.get('similar_image', []),
+                st.session_state['page'],
+                self.mount_dir
             )
 
-    def maintenance(self) -> None:
-        st.warning(
-            "The DiVA application is currently undergoing maintenance. Please check back later."
+    def image_uploader(self):
+        uploaded_image = st.file_uploader(
+            'Upload image file',
+            help='Accepts jpeg, jpg, png.',
+            type=['jpeg', 'jpg', 'png'],
+            accept_multiple_files=False
         )
+        if uploaded_image:
+            self.handle_image_upload(uploaded_image)
+
+    def maintenance_mode(self):
+        st.warning('The DiVA application is currently undergoing maintenance.')
         st.stop()
 
-    def main(self) -> None:
-        self.update_title()
-        self.remove_deploy_btn()
-        self.session_state()
-        self.sidebar()
-        self.render_similar_image()
-        # self.maintenance()
+    def run(self):
+        self.render_sidebar()
+        self.render_similar_images()
+        # self.maintenance_mode()
