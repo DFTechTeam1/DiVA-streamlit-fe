@@ -10,6 +10,7 @@ async def fetch(encoded_image: str, threshold: float, page: int):
 	payload.threshold = threshold
 	payload.page = page
 
+	print(payload.model_dump())
 	try:
 		async with httpx.AsyncClient() as client:
 			logging.info('Proceeding request for image query.')
