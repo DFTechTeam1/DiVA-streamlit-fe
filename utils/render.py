@@ -44,8 +44,8 @@ class DivaViewRenderer:
                 for j, col in enumerate(cols):
                     if i + j < len(sorted_imgs):
                         img_data = sorted_imgs[i + j]
-                        relative = img_data['path'].replace("/home/dfactory/Project/DiVA-streamlit-be/mount/", '')
-                        url = img_data['image_stream'].replace('http://0.0.0.0:14000', 'http://localhost:14000')
+                        relative = img_data['path'].replace(str(mount_dir), "")
+                        url = img_data['image_stream']
 
                         col.image(url, use_container_width=True)
                         col.write(f'**Project path: {relative}**')
