@@ -11,7 +11,7 @@ from utils.render import DivaViewRenderer
 
 class DiVA:
 	def __init__(self):
-		self.mount_dir = os.path.join(Path(__file__).resolve().parents[1], 'mount')
+		self.mount_dir = Path(__file__).resolve().parents[2] / 'DiVA-streamlit-be' / 'mount'
 		self.page_config()
 		self.hide_deploy_ui()
 		self.init_session_state()
