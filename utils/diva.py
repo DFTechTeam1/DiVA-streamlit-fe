@@ -25,7 +25,6 @@ async def fetch(encoded_image: str, threshold: float, page: int):
 
 			return data, response.status_code
 	except httpx.ConnectError:
-		pass
-		# raise Exception(
-		#     "Unable to connect backend service. Please ensure backend server is ready."
-		# )
+		raise Exception(
+		    "Unable to connect backend service. Please ensure backend server is ready."
+		)
