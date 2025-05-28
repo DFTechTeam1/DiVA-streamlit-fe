@@ -71,6 +71,11 @@ class DiVA:
 		)
 		if uploaded_image:
 			self.handle_image_upload(uploaded_image)
+		else:
+			st.session_state['encoded_image'] = None
+			st.session_state['page'] = 1
+			st.session_state['total_page'] = 1
+			st.session_state['similar_image'] = None
 
 	def handle_image_upload(self, uploaded_image):
 		logging.info(f'Uploaded image {uploaded_image.name}')

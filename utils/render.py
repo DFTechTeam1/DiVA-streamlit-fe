@@ -1,5 +1,6 @@
 import base64
 import streamlit as st
+from pathlib import Path
 from utils.logger import logging
 
 class DivaViewRenderer:
@@ -44,12 +45,20 @@ class DivaViewRenderer:
                 for j, col in enumerate(cols):
                     if i + j < len(sorted_imgs):
                         img_data = sorted_imgs[i + j]
-                        relative = img_data['path'].replace(str(mount_dir), "")
+                        relative_path = img_data['path'].replace(str(mount_dir), "")
+                        relative_path = Path(relative_path)
+                        preview_dir = relative_path.parent
+                        project_name = preview_dir.parent.name
+                        project_dir = preview_dir.parent
+                        project_dir = str(project_dir).replace("/", "\\")
+                        project_dir = "\\"+project_dir
+                    
                         url = img_data['image_stream']
 
-                        col.image(url, use_container_width=True)
-                        col.write(f'**Project path: {relative}**')
-                        col.write(f'*Similarity score: {img_data["score"]}%*')
+                        col.image(url)
+                        col.write(f'Project name: {project_name}')
+                        col.write(f'**Similarity: {img_data["score"]}%**')
+                        col.code(project_dir)
 
             logging.info(f'Rendered {len(sorted_imgs)} similar images on page {page}.')
         else:
